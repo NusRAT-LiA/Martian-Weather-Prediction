@@ -1,9 +1,14 @@
 import requests
 import json
 import pandas as pd
+import numpy as np
+pd.set_option('future.no_silent_downcasting', True)
 
+
+# API URL for fetching data
 api_url = "https://cab.inta-csic.es/rems/wp-content/plugins/marsweather-widget/api.php"
 
+# Function to fetch data from the API
 def fetch_data():
     try:
         response = requests.get(api_url)
@@ -13,7 +18,7 @@ def fetch_data():
         print("Error fetching data:", e)
         return None
 
-# Process the fetched data
+# Function to process the fetched data
 def process_data(data):
     if not data:
         return None
@@ -38,37 +43,66 @@ def process_data(data):
         processed_data.append(processed_sol)
     return processed_data
 
+# Fetch data
 data = fetch_data()
+# Process data
 processed_data = process_data(data)
 
-# Print processed data 
-# if processed_data:
-#     print("Processed data:", json.dumps(processed_data, indent=4))
-
+# Function to prepare the processed data into a DataFrame
 def prepare_data(processed_data):
     df = pd.DataFrame(processed_data)
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
     return df
 
+# Prepare data
 prepared_data = prepare_data(processed_data)
-print("Prepared data:")
+
+# Replace '--' with NaN
+prepared_data = prepared_data.replace('--', np.nan).infer_objects(copy=False)
+
+# Calculate null percentages for each column
+null_percentage = (prepared_data.isnull().sum() / len(prepared_data)) * 100
+
+# Remove columns with null percentage > 50
+columns_to_remove = null_percentage[null_percentage > 50].index
+prepared_data.drop(columns_to_remove, axis=1, inplace=True)
+
+# Fill missing values in 'uv_index' with mode
+mode_uv_index = prepared_data['uv_index'].mode()[0]
+prepared_data['uv_index'] = prepared_data['uv_index'].fillna(mode_uv_index)
+
+# Fill missing values in 'atmo_opacity' with mode
+most_frequent_atmo_opacity = prepared_data['atmo_opacity'].mode()[0]
+prepared_data['atmo_opacity'] = prepared_data['atmo_opacity'].fillna(most_frequent_atmo_opacity)
+
+# Drop specific rows
+prepared_data.drop(['2012-08-15', '2012-08-07'], inplace=True)
+
+# Label Encoding for 'uv_index' column
+uv_index_mapping = {'Low': 0, 'Moderate': 1, 'High': 2, 'Very_High': 3}
+prepared_data['uv_index_encoded'] = prepared_data['uv_index'].map(uv_index_mapping)
+
+# One-Hot Encoding for 'atmo_opacity' column
+atmo_opacity_encoded = pd.get_dummies(prepared_data['atmo_opacity'], prefix='atmo_opacity')
+
+# Concatenate the encoded columns with the original dataframe
+prepared_data= pd.concat([prepared_data, atmo_opacity_encoded], axis=1)
+
+# Drop the original non-numerical columns
+prepared_data.drop(['uv_index', 'atmo_opacity'], axis=1, inplace=True)
+
+# Convert 'sunrise' and 'sunset' columns to datetime objects
+prepared_data['sunrise'] = pd.to_datetime(prepared_data['sunrise'], format='%H:%M')
+prepared_data['sunset'] = pd.to_datetime(prepared_data['sunset'], format='%H:%M')
+
+# Calculate minutes since midnight for 'sunrise' and 'sunset'
+prepared_data['sunrise_minutes'] = prepared_data['sunrise'].dt.hour * 60 + prepared_data['sunrise'].dt.minute
+prepared_data['sunset_minutes'] = prepared_data['sunset'].dt.hour * 60 + prepared_data['sunset'].dt.minute
+
+# Drop the original 'sunrise' and 'sunset' columns
+prepared_data.drop(['sunrise', 'sunset'], axis=1, inplace=True)
+
+# Print the updated prepared data with time components
+print("Updated Prepared data with time components:")
 print(prepared_data)
-
-# output-
-# Prepared data:
-#              sol  min_temp  max_temp  pressure humidity wind_speed atmo_opacity sunrise sunset   uv_index  min_gts_temp  max_gts_temp
-# date                                                                                                                                 
-# 2024-03-06  4117       -69         4       791       --         --        Sunny   05:19  17:28   Moderate           -74            15
-# 2024-03-05  4116       -67         9       788       --         --        Sunny   05:19  17:28   Moderate           -82            15
-# 2024-03-04  4115       -71         8       781       --         --        Sunny   05:19  17:27   Moderate           -85            15
-# 2024-03-03  4114       -68         6       783       --         --        Sunny   05:19  17:27   Moderate           -75            16
-# 2024-03-02  4113       -72         7       778       --         --        Sunny   05:19  17:27   Moderate           -76            15
-# ...          ...       ...       ...       ...      ...        ...          ...     ...    ...        ...           ...           ...
-# 2012-08-18    12       -76       -18       741       --         --        Sunny   05:28  17:21  Very_High           -82             8
-# 2012-08-17    11       -76       -11       740       --         --        Sunny   05:28  17:21  Very_High           -83             9
-# 2012-08-16    10       -75       -16       739       --         --        Sunny   05:28  17:22  Very_High           -83             8
-# 2012-08-15     9         0         0         0       --         --        Sunny   05:28  17:22         --             0             0
-# 2012-08-07     1         0         0         0       --         --        Sunny   05:30  17:22         --             0             0
-
-# [3893 rows x 12 columns]

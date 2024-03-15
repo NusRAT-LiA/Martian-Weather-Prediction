@@ -2,16 +2,16 @@ import requests
 import json
 import pandas as pd
 import numpy as np
+from config import API_URL
+
 pd.set_option('future.no_silent_downcasting', True)
 
 
-# API URL for fetching data
-api_url = "https://cab.inta-csic.es/rems/wp-content/plugins/marsweather-widget/api.php"
 
 # Function to fetch data from the API
 def fetch_data():
     try:
-        response = requests.get(api_url)
+        response = requests.get(API_URL)
         data = response.json()
         return data
     except Exception as e:

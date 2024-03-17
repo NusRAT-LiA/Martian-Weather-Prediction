@@ -3,6 +3,9 @@ import json
 import pandas as pd
 import numpy as np
 from config import API_URL
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error
+
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -55,6 +58,47 @@ def prepare_data(processed_data):
     df.set_index('date', inplace=True)
     return df
 
+
+def create_predictions(prepared_data):
+    # Define the Ridge regression model
+    reg = Ridge(alpha=0.1)
+    
+    # Define predictors
+    predictors = ["min_temp", "max_temp", "pressure", 
+                  "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
+    
+    # Dictionary to store predictions for each target column
+    all_predictions = {}
+    
+    # Iterate over each column (except the date column)
+    for column in prepared_data.columns:
+        if column == 'date':
+            continue
+        
+        # Set the target column
+        target_column = column
+        
+        # Split data into features (X) and target (y)
+        X = prepared_data[predictors]
+        y = prepared_data[target_column]
+        
+        # Fit the model
+        reg.fit(X, y)
+        
+        # Make predictions
+        predictions = reg.predict(X)
+        
+        # Calculate mean squared error
+        error = mean_squared_error(y, predictions)
+        
+        # Print mean squared error
+        print("Mean Squared Error for {}: {}".format(target_column, error))
+        
+        # Store predictions for the target column
+        all_predictions[target_column] = predictions
+    
+    return all_predictions
+
 # Prepare data
 prepared_data = prepare_data(processed_data)
 
@@ -101,8 +145,15 @@ prepared_data['sunrise_minutes'] = prepared_data['sunrise'].dt.hour * 60 + prepa
 prepared_data['sunset_minutes'] = prepared_data['sunset'].dt.hour * 60 + prepared_data['sunset'].dt.minute
 
 # Drop the original 'sunrise' and 'sunset' columns
-prepared_data.drop(['sunrise', 'sunset'], axis=1, inplace=True)
+prepared_data.drop(['sunrise', 'sunset','sol'], axis=1, inplace=True)
 
 # Print the updated prepared data with time components
 print("Updated Prepared data with time components:")
 print(prepared_data)
+
+# Create predictions for each target column
+all_predictions = create_predictions(prepared_data)
+
+# Display predictions for each target column
+for target_column, predictions in all_predictions.items():
+    print("Predictions for {}: {}".format(target_column, predictions))

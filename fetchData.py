@@ -134,18 +134,9 @@ atmo_opacity_encoded = pd.get_dummies(prepared_data['atmo_opacity'], prefix='atm
 prepared_data= pd.concat([prepared_data, atmo_opacity_encoded], axis=1)
 
 # Drop the original non-numerical columns
-prepared_data.drop(['uv_index', 'atmo_opacity'], axis=1, inplace=True)
+prepared_data.drop(['uv_index', 'atmo_opacity', 'sunrise','sunset'], axis=1, inplace=True)
 
-# Convert 'sunrise' and 'sunset' columns to datetime objects
-prepared_data['sunrise'] = pd.to_datetime(prepared_data['sunrise'], format='%H:%M')
-prepared_data['sunset'] = pd.to_datetime(prepared_data['sunset'], format='%H:%M')
 
-# Calculate minutes since midnight for 'sunrise' and 'sunset'
-prepared_data['sunrise_minutes'] = prepared_data['sunrise'].dt.hour * 60 + prepared_data['sunrise'].dt.minute
-prepared_data['sunset_minutes'] = prepared_data['sunset'].dt.hour * 60 + prepared_data['sunset'].dt.minute
-
-# Drop the original 'sunrise' and 'sunset' columns
-prepared_data.drop(['sunrise', 'sunset','sol'], axis=1, inplace=True)
 
 # Print the updated prepared data with time components
 print("Updated Prepared data with time components:")
@@ -154,6 +145,6 @@ print(prepared_data)
 # Create predictions for each target column
 all_predictions = create_predictions(prepared_data)
 
-# Display predictions for each target column
-for target_column, predictions in all_predictions.items():
-    print("Predictions for {}: {}".format(target_column, predictions))
+# # Display predictions for each target column
+# for target_column, predictions in all_predictions.items():
+#     print("Predictions for {}: {}".format(target_column, predictions))

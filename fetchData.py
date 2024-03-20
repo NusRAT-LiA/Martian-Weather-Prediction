@@ -9,7 +9,8 @@ from sklearn.metrics import mean_squared_error
 
 pd.set_option('future.no_silent_downcasting', True)
 
-
+# Define the Ridge regression model
+reg = Ridge(alpha=0.1)
 
 # Function to fetch data from the API
 def fetch_data():
@@ -61,7 +62,7 @@ def prepare_data(processed_data):
 
 def create_predictions(prepared_data):
     # Define the Ridge regression model
-    reg = Ridge(alpha=0.1)
+    # reg = Ridge(alpha=0.1)
     
     # Define predictors
     predictors = ["min_temp", "max_temp", "pressure", 
@@ -83,7 +84,7 @@ def create_predictions(prepared_data):
         y = prepared_data[target_column]
         
         # Fit the model
-        reg.fit(X, y)
+        reg.fit(X, y) 
         
         # Make predictions
         predictions = reg.predict(X)
@@ -98,7 +99,27 @@ def create_predictions(prepared_data):
         all_predictions[target_column] = predictions
     
     return all_predictions
-
+# Function to make predictions for new data
+def make_predictions_for_new_data(new_data, model, predictors):
+    # Iterate over each column (except the date column)
+    all_predictions = {}
+    for column in new_data.columns:
+        if column == 'date':
+            continue
+        
+        # Set the target column
+        target_column = column
+        
+        # Get features (X) for new data
+        X_new = new_data[predictors]
+        
+        # Make predictions
+        predictions = model.predict(X_new)
+        
+        # Store predictions for the target column
+        all_predictions[target_column] = predictions
+    
+    return all_predictions
 # Prepare data
 prepared_data = prepare_data(processed_data)
 
@@ -134,7 +155,7 @@ atmo_opacity_encoded = pd.get_dummies(prepared_data['atmo_opacity'], prefix='atm
 prepared_data= pd.concat([prepared_data, atmo_opacity_encoded], axis=1)
 
 # Drop the original non-numerical columns
-prepared_data.drop(['uv_index', 'atmo_opacity', 'sunrise','sunset'], axis=1, inplace=True)
+prepared_data.drop(['uv_index', 'atmo_opacity', 'sunrise','sunset','sol'], axis=1, inplace=True)
 
 
 

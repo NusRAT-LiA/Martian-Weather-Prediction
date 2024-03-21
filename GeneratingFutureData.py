@@ -3,15 +3,18 @@ import json
 import pandas as pd
 import numpy as np
 from config import API_URL
-from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import HistGradientBoostingRegressor
 import pickle
 from datetime import datetime
+import yfinance as yf
+import tensorflow as tf
+from tensorflow.keras.layers import Dense, LSTM
+from tensorflow.keras.models import Sequential
 
 pd.set_option('future.no_silent_downcasting', True)
-
-# Define the Ridge regression model
-reg = Ridge(alpha=0.1)
+tf.random.set_seed(0)
 
 # Function to fetch data from the API
 def fetch_data():
@@ -60,47 +63,6 @@ def prepare_data(processed_data):
     df.set_index('date', inplace=True)
     return df
 
-
-def create_predictions(prepared_data):
-    # Define the Ridge regression model
-    # reg = Ridge(alpha=0.1)
-    
-    # Define predictors
-    predictors = ["min_temp", "max_temp", "pressure", 
-                  "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
-    
-    # Dictionary to store predictions for each target column
-    all_predictions = {}
-    
-    # Iterate over each column (except the date column)
-    for column in prepared_data.columns:
-        if column == 'date':
-            continue
-        
-        # Set the target column
-        target_column = column
-        
-        # Split data into features (X) and target (y)
-        X = prepared_data[predictors]
-        y = prepared_data[target_column]
-        
-        # Fit the model
-        reg.fit(X, y) 
-        
-        # Make predictions
-        predictions = reg.predict(X)
-        
-        # Calculate mean squared error
-        error = mean_squared_error(y, predictions)
-        
-        # Print mean squared error
-        print("Mean Squared Error for {}: {}".format(target_column, error))
-        
-        # Store predictions for the target column
-        all_predictions[target_column] = predictions
-    
-    return all_predictions
-
 # Prepare data
 prepared_data = prepare_data(processed_data)
 
@@ -138,26 +100,66 @@ prepared_data= pd.concat([prepared_data, atmo_opacity_encoded], axis=1)
 # Drop the original non-numerical columns
 prepared_data.drop(['uv_index', 'atmo_opacity', 'sunrise','sunset','sol', 'atmo_opacity_Sunny'], axis=1, inplace=True)
 
-
-
-# Print the updated prepared data with time components
+# print the updated prepared data with time components
 print("Updated Prepared data with time components:")
 print(prepared_data)
 
-# Create predictions for each target column
-all_predictions = create_predictions(prepared_data)
+# Generate the input and output sequences
+n_lookback = 60  # length of input sequences (lookback period)
+n_forecast = 30  # length of output sequences (forecast period)
 
-# Display predictions for each target column
-for target_column, predictions in all_predictions.items():
-    print("Predictions for {}: {}".format(target_column, predictions))
+X = []
+Y = []
 
-with open('trained_ridge_model.pkl', 'wb') as f:
-    pickle.dump(reg, f)
+for i in range(n_lookback, len(prepared_data) - n_forecast + 1):
+    X.append(prepared_data.values[i - n_lookback: i])
+    Y.append(prepared_data.values[i: i + n_forecast])
 
-with open('trained_ridge_model.pkl', 'rb') as f:
+X = np.array(X)
+Y = np.array(Y)
+
+# Fit the model
+model = Sequential()
+model.add(LSTM(units=50, return_sequences=True, input_shape=(n_lookback, prepared_data.shape[1])))
+model.add(LSTM(units=50))
+model.add(Dense(n_forecast))
+
+model.compile(loss='mean_squared_error', optimizer='adam')
+Y = Y.reshape(-1, n_forecast)
+
+model.fit(X, Y, epochs=100, batch_size=32, verbose=0)
+
+# Generate the forecasts
+X_ = prepared_data.values[- n_lookback:]  # last available input sequence
+X_ = X_.reshape(1, n_lookback, prepared_data.shape[1])
+
+Y_ = model.predict(X_).reshape(-1, 1)
+
+# Organize the results in a DataFrame
+df_past = prepared_data.reset_index()
+df_past.rename(columns={'index': 'Date'}, inplace=True)
+
+df_future = pd.DataFrame(columns=['Date', 'Forecast'])
+df_future['Date'] = pd.date_range(start=df_past['Date'].iloc[-1] + pd.Timedelta(days=1), periods=n_forecast)
+df_future['Forecast'] = Y_.flatten()
+
+results = df_past.append(df_future).set_index('Date')
+
+# Plot the results
+results.plot(title='Forecast')
+
+# Save the trained model
+with open('trained_model.pkl', 'wb') as f:
+    pickle.dump(model, f)
+
+# Load the trained model
+with open('trained_model.pkl', 'rb') as f:
     loaded_model = pickle.load(f)
 
-
-future_dates = pd.date_range(start='2024-03-14', end='2024-03-20')
-future_data = pd.DataFrame(index=future_dates, columns=prepared_data.columns)
+# Predict future data
+future_dates = pd.date_range(start=prepared_data.index[-1] + pd.Timedelta(days=1), periods=n_forecast)
+future_data = np.array([prepared_data.values[-n_lookback:]])
 future_predictions = loaded_model.predict(future_data)
+
+print("Future Predictions:")
+print(future_predictions)

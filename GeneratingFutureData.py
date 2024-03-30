@@ -10,8 +10,10 @@ import pickle
 from datetime import datetime
 import yfinance as yf
 import tensorflow as tf
-from tensorflow.keras.layers import Dense, LSTM
-from tensorflow.keras.models import Sequential
+from tensorflow import keras
+from keras.models import Sequential
+from keras.layers import Dense, LSTM
+
 
 pd.set_option('future.no_silent_downcasting', True)
 tf.random.set_seed(0)

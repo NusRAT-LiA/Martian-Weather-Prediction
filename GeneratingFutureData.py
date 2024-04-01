@@ -1,18 +1,15 @@
+from datetime import datetime, timedelta
 import requests
-import json
 import pandas as pd
 import numpy as np
-from config import API_URL
+from sklearn.discriminant_analysis import StandardScaler
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import HistGradientBoostingRegressor
-import pickle
-from datetime import datetime
+from sklearn.model_selection import train_test_split
+from config import API_URL
 import yfinance as yf
 import tensorflow as tf
-from tensorflow import keras
-from keras.models import Sequential
-from keras.layers import Dense, LSTM
+
 
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -106,62 +103,32 @@ prepared_data.drop(['uv_index', 'atmo_opacity', 'sunrise','sunset','sol', 'atmo_
 print("Updated Prepared data with time components:")
 print(prepared_data)
 
-# Generate the input and output sequences
-n_lookback = 60  # length of input sequences (lookback period)
-n_forecast = 30  # length of output sequences (forecast period)
+prepared_data['year'] = prepared_data.index.year
+prepared_data['month'] = prepared_data.index.month
+prepared_data['day'] = prepared_data.index.day
 
-X = []
-Y = []
+X = prepared_data[['year', 'month', 'day']]
+y = prepared_data[["min_temp"]]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-for i in range(n_lookback, len(prepared_data) - n_forecast + 1):
-    X.append(prepared_data.values[i - n_lookback: i])
-    Y.append(prepared_data.values[i: i + n_forecast])
+# Feature scaling
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
-X = np.array(X)
-Y = np.array(Y)
+# Train the model
+model = LinearRegression()
+model.fit(X_train_scaled, y_train)
 
-# Fit the model
-model = Sequential()
-model.add(LSTM(units=50, return_sequences=True, input_shape=(n_lookback, prepared_data.shape[1])))
-model.add(LSTM(units=50))
-model.add(Dense(n_forecast))
+# Evaluate the model
+y_pred = model.predict(X_test_scaled)
+mse = mean_squared_error(y_test, y_pred)
+print(f'Mean Squared Error: {mse}')
 
-model.compile(loss='mean_squared_error', optimizer='adam')
-Y = Y.reshape(-1, n_forecast)
+future_date = datetime.now() + timedelta(days=7)  
+future_year = future_date.year
+future_month = future_date.month
+future_day = future_date.day
 
-model.fit(X, Y, epochs=100, batch_size=32, verbose=0)
-
-# Generate the forecasts
-X_ = prepared_data.values[- n_lookback:]  # last available input sequence
-X_ = X_.reshape(1, n_lookback, prepared_data.shape[1])
-
-Y_ = model.predict(X_).reshape(-1, 1)
-
-# Organize the results in a DataFrame
-df_past = prepared_data.reset_index()
-df_past.rename(columns={'index': 'Date'}, inplace=True)
-
-df_future = pd.DataFrame(columns=['Date', 'Forecast'])
-df_future['Date'] = pd.date_range(start=df_past['Date'].iloc[-1] + pd.Timedelta(days=1), periods=n_forecast)
-df_future['Forecast'] = Y_.flatten()
-
-results = df_past.append(df_future).set_index('Date')
-
-# Plot the results
-results.plot(title='Forecast')
-
-# Save the trained model
-with open('trained_model.pkl', 'wb') as f:
-    pickle.dump(model, f)
-
-# Load the trained model
-with open('trained_model.pkl', 'rb') as f:
-    loaded_model = pickle.load(f)
-
-# Predict future data
-future_dates = pd.date_range(start=prepared_data.index[-1] + pd.Timedelta(days=1), periods=n_forecast)
-future_data = np.array([prepared_data.values[-n_lookback:]])
-future_predictions = loaded_model.predict(future_data)
-
-print("Future Predictions:")
-print(future_predictions)
+future_weather = model.predict(scaler.transform([[future_year, future_month, future_day]]))
+print(f'Predicted min temperature for {future_date.date()}: {future_weather[0]}')

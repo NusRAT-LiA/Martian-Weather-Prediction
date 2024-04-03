@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import pickle
 import requests
 import pandas as pd
 import numpy as np
@@ -9,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from config import API_URL
 import yfinance as yf
 import tensorflow as tf
+import joblib
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -87,6 +89,12 @@ def train_model(X, y):
 
     model = LinearRegression()
     model.fit(X_train_scaled, y_train)
+
+    with open('RegressionModel', 'wb') as f:
+        pickle.dump(model, f)
+    with open('ScalarModel', 'wb') as f:
+        pickle.dump(scaler, f)
+    
     return model, scaler, X_test_scaled, y_test
 
 def predict_future_weather(model, scaler, future_date):

@@ -1,5 +1,5 @@
+import joblib
 from datetime import datetime, timedelta
-import pickle
 import requests
 import pandas as pd
 import numpy as np
@@ -9,10 +9,22 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from config import API_URL
 import yfinance as yf
-import tensorflow as tf
-import joblib
 
 pd.set_option('future.no_silent_downcasting', True)
+
+class ModelWithScaler():
+    def __init__(self, model, scaler):
+        self.model = model
+        self.scaler = scaler
+
+    def fit(self, X, y):
+        X_scaled = self.scaler.fit_transform(X)
+        self.model.fit(X_scaled, y)
+        return self
+
+    def predict(self, X):
+        X_scaled = self.scaler.transform(X)
+        return self.model.predict(X_scaled)
 
 def fetch_data():
     try:
@@ -78,8 +90,6 @@ def preprocess_data(prepared_data):
     prepared_data['day'] = prepared_data.index.day
     return prepared_data
 
-
-
 def train_model(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
 
@@ -90,20 +100,21 @@ def train_model(X, y):
     model = LinearRegression()
     model.fit(X_train_scaled, y_train)
 
-    with open('RegressionModel', 'wb') as f:
-        pickle.dump(model, f)
-    with open('ScalarModel', 'wb') as f:
-        pickle.dump(scaler, f)
-    
-    return model, scaler, X_test_scaled, y_test
+    # Combine model and scaler into one object
+    model_with_scaler = ModelWithScaler(model, scaler)
 
-def predict_future_weather(model, scaler, future_date):
+    # Save the combined model and scaler using joblib
+    joblib.dump(model_with_scaler, 'model_with_scaler.h5')
+
+    return model_with_scaler, X_test_scaled, y_test
+
+def predict_future_weather(model_with_scaler, future_date):
     future_year = future_date.year
     future_month = future_date.month
     future_day = future_date.day
 
-    future_weather = model.predict(scaler.transform([[future_year, future_month, future_day]]))
-    return future_weather[0][0]
+    future_weather = model_with_scaler.predict([[future_year, future_month, future_day]])
+    return future_weather[0]
 
 def predict_future_weather_for_column(column_to_predict):
     data = fetch_data()
@@ -114,10 +125,10 @@ def predict_future_weather_for_column(column_to_predict):
     X = prepared_data[['year', 'month', 'day']]
     y = prepared_data[[column_to_predict]]
 
-    model, scaler, _, _ = train_model(X, y)
+    model_with_scaler, _, _ = train_model(X, y)
 
     future_date = datetime.now() 
-    future_weather = predict_future_weather(model, scaler, future_date)
+    future_weather = predict_future_weather(model_with_scaler, future_date)
 
     print(f'Predicted {column_to_predict} for {future_date.date()}: {future_weather}')
 
@@ -127,4 +138,3 @@ columns_to_predict = ["min_temp", "max_temp", "pressure", "min_gts_temp", "max_g
 # Call the function for each column
 for column in columns_to_predict:
     predict_future_weather_for_column(column)
-

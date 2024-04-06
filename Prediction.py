@@ -7,6 +7,7 @@ from sklearn.discriminant_analysis import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
+import zmq
 from config import API_URL
 import yfinance as yf
 
@@ -132,9 +133,29 @@ def predict_future_weather_for_column(column_to_predict):
 
     print(f'Predicted {column_to_predict} for {future_date.date()}: {future_weather}')
 
-# List of columns to predict
-columns_to_predict = ["min_temp", "max_temp", "pressure", "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
+# # List of columns to predict
+# columns_to_predict = ["min_temp", "max_temp", "pressure", "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
 
-# Call the function for each column
-for column in columns_to_predict:
-    predict_future_weather_for_column(column)
+# # Call the function for each column
+# for column in columns_to_predict:
+#     predict_future_weather_for_column(column)
+
+# Setup ZeroMQ context and socket
+context = zmq.Context()
+socket = context.socket(zmq.REP)
+socket.bind("tcp://*:5555")
+
+# List of columns to predict
+columns_to_predict = ["min_temp", "max_temp", "pressure"]
+
+while True:
+    # Receive a request from the client
+    request = socket.recv_string()
+
+    # Process the request
+    if request == "predict":
+        # Call the function for each column
+        for column in columns_to_predict:
+            predict_future_weather_for_column(column)
+        # Send a response back to the client
+        socket.send_string("Prediction completed")

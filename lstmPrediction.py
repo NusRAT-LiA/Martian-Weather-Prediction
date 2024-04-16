@@ -1,18 +1,18 @@
-from datetime import datetime, timedelta
 import requests
+import json
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
-from tensorflow import keras
-from sklearn.model_selection import train_test_split
-from keras.models import Sequential
-from keras.layers import LSTM, Dense
-
 from config import API_URL
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error
+
 
 pd.set_option('future.no_silent_downcasting', True)
 
-# Function to fetch data from API
+# Define the Ridge regression model
+reg = Ridge(alpha=0.1)
+
+# Function to fetch data from the API
 def fetch_data():
     try:
         response = requests.get(API_URL)
@@ -22,10 +22,11 @@ def fetch_data():
         print("Error fetching data:", e)
         return None
 
-# Function to process data
+# Function to process the fetched data
 def process_data(data):
     if not data:
         return None
+
     processed_data = []
     for sol in data.get('soles', []):
         processed_sol = {
@@ -46,78 +47,124 @@ def process_data(data):
         processed_data.append(processed_sol)
     return processed_data
 
-# Function to prepare data
+# Fetch data
+data = fetch_data()
+# Process data
+processed_data = process_data(data)
+
+# Function to prepare the processed data into a DataFrame
 def prepare_data(processed_data):
     df = pd.DataFrame(processed_data)
     df['date'] = pd.to_datetime(df['date'])
-    df['year'] = df['date'].dt.year  # Add year column
-    df['month'] = df['date'].dt.month  # Add month column
-    df['day'] = df['date'].dt.day  # Add day column
     df.set_index('date', inplace=True)
     return df
 
 
-# Function to preprocess data
-def preprocess_data(prepared_data):
-    # Your preprocessing steps here
-    return prepared_data
+def create_predictions(prepared_data):
+    
+    # Define predictors
+    predictors = ["min_temp", "max_temp", "pressure", 
+                  "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
+    
+    # Dictionary to store predictions for each target column
+    all_predictions = {}
+    
+    # Iterate over each column (except the date column)
+    for column in prepared_data.columns:
+        if column == 'date':
+            continue
+        
+        # Set the target column
+        target_column = column
+        
+        # Split data into features (X) and target (y)
+        X = prepared_data[predictors]
+        y = prepared_data[target_column]
+        
+        # Fit the model
+        reg.fit(X, y) 
+        
+        # Make predictions
+        predictions = reg.predict(X)
+        
+        # Calculate mean squared error
+        error = mean_squared_error(y, predictions)
+        
+        # Print mean squared error
+        print("Mean Squared Error for {}: {}".format(target_column, error))
+        
+        # Store predictions for the target column
+        all_predictions[target_column] = predictions
+    
+    return all_predictions
 
-# Function to create sequences for LSTM
-def create_sequences(data, seq_length):
-    sequences = []
-    for i in range(len(data) - seq_length):
-        sequences.append(data[i:i + seq_length])
-    return np.array(sequences)
+# Function to make predictions for new data
+def make_predictions_for_new_data(new_data, model, predictors):
 
-# Function to create LSTM model
-def create_lstm_model(input_shape):
-    model = Sequential([
-        LSTM(64, input_shape=input_shape, return_sequences=True),
-        LSTM(64),
-        Dense(32, activation='relu'),
-        Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    return model
+    # Iterate over each column (except the date column)
+    all_predictions = {}
+    for column in new_data.columns:
+        if column == 'date':
+            continue
+        
+        # Set the target column
+        target_column = column
+        
+        # Get features (X) for new data
+        X_new = new_data[predictors]
+        
+        # Make predictions
+        predictions = model.predict(X_new)
+        
+        # Store predictions for the target column
+        all_predictions[target_column] = predictions
+    
+    return all_predictions
 
-# Function to train LSTM model
-def train_lstm_model(X_train, y_train, epochs=10, batch_size=32):
-    model = create_lstm_model(X_train.shape[1:])
-    model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0)
-    return model
 
-# Function to predict future weather using LSTM model
-def predict_future_weather(model, X):
-    future_weather = model.predict(X)
-    return future_weather[-1][0]
+# Prepare data
+prepared_data = prepare_data(processed_data)
 
-# Function to predict future weather for a column using LSTM
-def predict_future_weather_for_column(column_to_predict):
-    data = fetch_data()
-    processed_data = process_data(data)
-    prepared_data = prepare_data(processed_data)
-    prepared_data = preprocess_data(prepared_data)
+# Replace '--' with NaN
+prepared_data = prepared_data.replace('--', np.nan).infer_objects(copy=False)
 
-    # Reshape data for LSTM
-    seq_length = 0  # Adjust as needed
-    X = prepared_data[['year', 'month', 'day']].values
-    y = prepared_data[[column_to_predict]].values
+# Calculate null percentages for each column
+null_percentage = (prepared_data.isnull().sum() / len(prepared_data)) * 100
 
-    # Split data into training and test sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+# Remove columns with null percentage > 50
+columns_to_remove = null_percentage[null_percentage > 50].index
+prepared_data.drop(columns_to_remove, axis=1, inplace=True)
 
-    # Train LSTM model
-    model = train_lstm_model(X_train, y_train)
+# Fill missing values in 'uv_index' with mode
+mode_uv_index = prepared_data['uv_index'].mode()[0]
+prepared_data['uv_index'] = prepared_data['uv_index'].fillna(mode_uv_index)
 
-    # Predict future weather
-    future_date = datetime.now() 
-    future_weather = predict_future_weather(model, X_test)
+# Fill missing values in 'atmo_opacity' with mode
+most_frequent_atmo_opacity = prepared_data['atmo_opacity'].mode()[0]
+prepared_data['atmo_opacity'] = prepared_data['atmo_opacity'].fillna(most_frequent_atmo_opacity)
 
-    print(f'Predicted {column_to_predict} for {future_date.date()}: {future_weather}')
+# Drop specific rows
+prepared_data.drop(['2012-08-15', '2012-08-07'], inplace=True)
 
-# List of columns to predict
-columns_to_predict = ["min_temp", "max_temp", "pressure", "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
+# Label Encoding for 'uv_index' column
+uv_index_mapping = {'Low': 0, 'Moderate': 1, 'High': 2, 'Very_High': 3}
+prepared_data['uv_index_encoded'] = prepared_data['uv_index'].map(uv_index_mapping)
 
-# Call the function for each column
-for column in columns_to_predict:
-    predict_future_weather_for_column(column)
+# One-Hot Encoding for 'atmo_opacity' column
+atmo_opacity_encoded = pd.get_dummies(prepared_data['atmo_opacity'], prefix='atmo_opacity')
+
+# Concatenate the encoded columns with the original dataframe
+prepared_data= pd.concat([prepared_data, atmo_opacity_encoded], axis=1)
+
+# Drop the original non-numerical columns
+prepared_data.drop(['uv_index', 'atmo_opacity', 'sunrise','sunset','sol'], axis=1, inplace=True)
+
+
+
+# Print the updated prepared data with time components
+print("Updated Prepared data with time components:")
+print(prepared_data)
+
+# Create predictions for each target column
+all_predictions = create_predictions(prepared_data)
+

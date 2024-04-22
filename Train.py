@@ -1,32 +1,18 @@
+import os
 import joblib
-from datetime import datetime, timedelta
-import requests
+from datetime import datetime
 import pandas as pd
 import numpy as np
+import requests
+from config import API_URL
 from sklearn.discriminant_analysis import StandardScaler
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
-import zmq
-from config import API_URL
-import yfinance as yf
+from model import ModelWithScaler
 
 pd.set_option('future.no_silent_downcasting', True)
 
-class ModelWithScaler():
-    def __init__(self, model, scaler):
-        self.model = model
-        self.scaler = scaler
-
-    def fit(self, X, y):
-        X_scaled = self.scaler.fit_transform(X)
-        self.model.fit(X_scaled, y)
-        return self
-
-    def predict(self, X):
-        X_scaled = self.scaler.transform(X)
-        return self.model.predict(X_scaled)
-
+    
 def fetch_data():
     try:
         response = requests.get(API_URL)
@@ -91,71 +77,32 @@ def preprocess_data(prepared_data):
     prepared_data['day'] = prepared_data.index.day
     return prepared_data
 
-def train_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+def train_models(X, y):
+    models = {}
+    script_dir = os.path.dirname(__file__)  
+    for column in y.columns:
+        X_train, X_test, y_train, y_test = train_test_split(X, y[column], test_size=0.1, random_state=42)
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        model = LinearRegression()
+        model.fit(X_train_scaled, y_train)
+        model_with_scaler = ModelWithScaler(model, scaler)
+        model_file_path = os.path.join(script_dir, f'{column}_model_with_scaler.h5')
+        joblib.dump(model_with_scaler, model_file_path)
+        models[column] = model_file_path
+        # models[column] = ModelWithScaler(model, scaler)
+        # joblib.dump(models[column], f'{column}_model_with_scaler.h5')
+    return models
 
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+# Fetch data and preprocess
+data = fetch_data()
+processed_data = process_data(data)
+prepared_data = prepare_data(processed_data)
+prepared_data = preprocess_data(prepared_data)
 
-    model = LinearRegression()
-    model.fit(X_train_scaled, y_train)
+# Select features and target columns
+X = prepared_data[['year', 'month', 'day']]
+y = prepared_data[['min_temp', 'max_temp', 'pressure','uv_index_encoded','min_gts_temp','max_gts_temp']]
 
-    # Combine model and scaler into one object
-    model_with_scaler = ModelWithScaler(model, scaler)
-
-    # Save the combined model and scaler using joblib
-    joblib.dump(model_with_scaler, 'model_with_scaler.h5')
-
-    return model_with_scaler, X_test_scaled, y_test
-
-def predict_future_weather(model_with_scaler, future_date):
-    future_year = future_date.year
-    future_month = future_date.month
-    future_day = future_date.day
-
-    future_weather = model_with_scaler.predict([[future_year, future_month, future_day]])
-    return future_weather[0]
-
-def predict_future_weather_for_column(column_to_predict):
-    data = fetch_data()
-    processed_data = process_data(data)
-    prepared_data = prepare_data(processed_data)
-    prepared_data = preprocess_data(prepared_data)
-
-    X = prepared_data[['year', 'month', 'day']]
-    y = prepared_data[[column_to_predict]]
-
-    model_with_scaler, _, _ = train_model(X, y)
-
-    future_date = datetime.now() 
-    future_weather = predict_future_weather(model_with_scaler, future_date)
-
-    print(f'Predicted {column_to_predict} for {future_date.date()}: {future_weather}')
-
-# # List of columns to predict
-# columns_to_predict = ["min_temp", "max_temp", "pressure", "min_gts_temp", "max_gts_temp", "uv_index_encoded"]
-
-# # Call the function for each column
-# for column in columns_to_predict:
-#     predict_future_weather_for_column(column)
-
-# Setup ZeroMQ context and socket
-context = zmq.Context()
-socket = context.socket(zmq.REP)
-socket.bind("tcp://*:5555")
-
-# List of columns to predict
-columns_to_predict = ["min_temp", "max_temp", "pressure"]
-
-while True:
-    # Receive a request from the client
-    request = socket.recv_string()
-
-    # Process the request
-    if request == "predict":
-        # Call the function for each column
-        for column in columns_to_predict:
-            predict_future_weather_for_column(column)
-        # Send a response back to the client
-        socket.send_string("Prediction completed")
+# Train models
+trained_models = train_models(X, y)

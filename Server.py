@@ -30,7 +30,7 @@ columns_to_predict = ['min_temp', 'max_temp', 'pressure','uv_index_encoded','min
 models_dir = os.path.dirname(__file__)  
 
 # Train the model before starting the server
-# train_model()
+train_model()
 
 while True:
     print("Server Running\n")
